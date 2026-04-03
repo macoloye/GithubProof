@@ -1,0 +1,82 @@
+[
+  {
+    "id": "top_contributor_supported",
+    "severity": "low",
+    "when": {
+      "classification_in": ["top_contributor"]
+    },
+    "explanation": "Subject ranks as a top contributor in {repo} with rank {contributor_rank} and contribution share {contribution_share_pct}%."
+  },
+  {
+    "id": "top_contributor_not_supported",
+    "severity": "high",
+    "when": {
+      "classification_in": ["minor_contributor", "unclear_due_to_data_limits"],
+      "contributor_rank_lte": 10
+    },
+    "explanation": "Subject is not supported as a top contributor in {repo}; rank is {contributor_rank} with contribution share {contribution_share_pct}%."
+  },
+  {
+    "id": "late_entry_on_repo",
+    "severity": "medium",
+    "when": {
+      "days_from_repo_creation_to_first_contribution_gt": 180
+    },
+    "explanation": "Subject's first measurable contribution to {repo} arrived {days_from_repo_creation_to_first_contribution} days after repo creation."
+  },
+  {
+    "id": "short_tenure_on_repo",
+    "severity": "medium",
+    "when": {
+      "active_days_lt": 30,
+      "total_actions_gte": 3
+    },
+    "explanation": "Subject was active on {repo} for only {active_days} days across {total_actions} measured actions."
+  },
+  {
+    "id": "broad_repo_list_thin_presence",
+    "severity": "high",
+    "scope": "profile",
+    "when": {
+      "repo_count_gte": 5,
+      "minor_ratio_gte": 0.6
+    },
+    "explanation": "The subject appears across {repo_count} repos, but {minor_ratio_pct}% of them are minor-presence repos."
+  },
+  {
+    "id": "many_actions_low_depth",
+    "severity": "medium",
+    "when": {
+      "total_actions_gte": 10,
+      "contribution_share_lt": 0.1
+    },
+    "explanation": "Subject logged {total_actions} actions in {repo}, but only accounts for {contribution_share_pct}% of contributor activity."
+  },
+  {
+    "id": "minor_presence_misleading_scope",
+    "severity": "medium",
+    "when": {
+      "classification_in": ["minor_contributor"],
+      "total_actions_gte": 1
+    },
+    "explanation": "Subject appears in {repo}, but the evidence supports only a minor contribution footprint."
+  },
+  {
+    "id": "inactive_after_brief_burst",
+    "severity": "medium",
+    "when": {
+      "active_days_lt": 14,
+      "total_actions_gte": 5
+    },
+    "explanation": "Subject activity on {repo} was concentrated in a brief burst of {active_days} days."
+  },
+  {
+    "id": "identity_ambiguity",
+    "severity": "high",
+    "scope": "profile",
+    "when": {
+      "unattributed_contribution_repos_gte": 3
+    },
+    "explanation": "Multiple repos have weak contribution attribution for the subject, leaving identity confidence lower than desired."
+  }
+]

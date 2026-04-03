@@ -1,0 +1,40 @@
+[
+  {
+    "id": "many_recently_created_stargazers",
+    "severity": "high",
+    "when": {
+      "analyzed_stargazers_gte": 20,
+      "recent_account_ratio_gte": 0.35
+    },
+    "explanation": "{repo} has {recent_account_ratio_pct}% stargazers with accounts created within 30 days of starring."
+  },
+  {
+    "id": "young_account_star_skew",
+    "severity": "high",
+    "when": {
+      "analyzed_stargazers_gte": 20,
+      "suspicious_ratio_gte": 0.45
+    },
+    "explanation": "{repo} shows a suspicious star skew: {suspicious_ratio_pct}% of analyzed stargazers come from recent or very young accounts."
+  },
+  {
+    "id": "stars_high_but_engagement_low",
+    "severity": "medium",
+    "when": {
+      "total_stars_gte": 50,
+      "forks_lt": 5,
+      "analyzed_stargazers_gte": 10
+    },
+    "explanation": "{repo} has {total_stars} stars but only {forks} forks, which weakens the external engagement picture."
+  },
+  {
+    "id": "star_pattern_inconsistent_with_repo_activity",
+    "severity": "medium",
+    "when": {
+      "total_stars_gte": 30,
+      "top_contributor_actions_lt": 20,
+      "suspicious_ratio_gte": 0.25
+    },
+    "explanation": "{repo} has star growth signals that look inconsistent with the measured contributor activity."
+  }
+]
