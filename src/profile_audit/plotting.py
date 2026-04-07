@@ -17,6 +17,20 @@ except Exception:
 from .models import RepoContributionSummary, RepoStarSummary, RuleResult
 
 
+def _short_repo_name(full_name: str, max_len: int = 28) -> str:
+    if len(full_name) <= max_len:
+        return full_name
+    owner, _, name = full_name.partition("/")
+    compact = f"{owner}/{name[: max_len - len(owner) - 4]}…"
+    return compact
+
+
+def _apply_style() -> None:
+    if plt is None:
+        return
+    plt.style.use("seaborn-v0_8-whitegrid")
+
+
 def _save(fig, path: Path) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
@@ -28,11 +42,13 @@ def _save(fig, path: Path) -> str:
 def plot_contribution_rank(repo_contributions: list[RepoContributionSummary], output_dir: Path) -> str | None:
     if plt is None:
         return None
+    _apply_style()
     items = [item for item in repo_contributions if item.contributor_rank is not None]
     if not items:
         return None
+    items = sorted(items, key=lambda item: item.contributor_rank or 999)
     fig, ax = plt.subplots(figsize=(10, 5))
-    labels = [item.repository.full_name for item in items]
+    labels = [_short_repo_name(item.repository.full_name) for item in items]
     values = [item.contributor_rank for item in items]
     ax.barh(labels, values, color="#205375")
     ax.invert_yaxis()
@@ -44,11 +60,13 @@ def plot_contribution_rank(repo_contributions: list[RepoContributionSummary], ou
 def plot_first_contribution_delay(repo_contributions: list[RepoContributionSummary], output_dir: Path) -> str | None:
     if plt is None:
         return None
+    _apply_style()
     items = [item for item in repo_contributions if item.days_from_repo_creation_to_first_contribution is not None]
     if not items:
         return None
+    items = sorted(items, key=lambda item: item.days_from_repo_creation_to_first_contribution or 0, reverse=True)
     fig, ax = plt.subplots(figsize=(10, 5))
-    labels = [item.repository.full_name for item in items]
+    labels = [_short_repo_name(item.repository.full_name) for item in items]
     values = [item.days_from_repo_creation_to_first_contribution for item in items]
     ax.bar(range(len(labels)), values, color="#4f772d")
     ax.set_xticks(range(len(labels)))
@@ -61,11 +79,13 @@ def plot_first_contribution_delay(repo_contributions: list[RepoContributionSumma
 def plot_active_duration(repo_contributions: list[RepoContributionSummary], output_dir: Path) -> str | None:
     if plt is None:
         return None
+    _apply_style()
     items = [item for item in repo_contributions if item.active_days is not None]
     if not items:
         return None
+    items = sorted(items, key=lambda item: item.active_days or 0, reverse=True)
     fig, ax = plt.subplots(figsize=(10, 5))
-    labels = [item.repository.full_name for item in items]
+    labels = [_short_repo_name(item.repository.full_name) for item in items]
     values = [item.active_days for item in items]
     ax.bar(range(len(labels)), values, color="#8a5a44")
     ax.set_xticks(range(len(labels)))
@@ -78,14 +98,16 @@ def plot_active_duration(repo_contributions: list[RepoContributionSummary], outp
 def plot_contribution_type_mix(repo_contributions: list[RepoContributionSummary], output_dir: Path) -> str | None:
     if plt is None:
         return None
+    _apply_style()
     if not repo_contributions:
         return None
+    items = sorted(repo_contributions, key=lambda item: item.subject.total_actions, reverse=True)
     fig, ax = plt.subplots(figsize=(10, 6))
-    labels = [item.repository.full_name for item in repo_contributions]
-    commit_values = [item.subject.commit_count for item in repo_contributions]
-    pr_values = [item.subject.pr_opened_count for item in repo_contributions]
-    issue_values = [item.subject.issue_opened_count for item in repo_contributions]
-    review_values = [item.subject.review_count for item in repo_contributions]
+    labels = [_short_repo_name(item.repository.full_name) for item in items]
+    commit_values = [item.subject.commit_count for item in items]
+    pr_values = [item.subject.pr_opened_count for item in items]
+    issue_values = [item.subject.issue_opened_count for item in items]
+    review_values = [item.subject.review_count for item in items]
     positions = range(len(labels))
     ax.bar(positions, commit_values, label="Commits", color="#205375")
     ax.bar(positions, pr_values, bottom=commit_values, label="PRs", color="#d97706")
@@ -103,11 +125,13 @@ def plot_contribution_type_mix(repo_contributions: list[RepoContributionSummary]
 def plot_stargazer_account_age(repo_stars: list[RepoStarSummary], output_dir: Path) -> str | None:
     if plt is None:
         return None
+    _apply_style()
     items = [item for item in repo_stars if item.bucket_counts]
     if not items:
         return None
+    items = sorted(items, key=lambda item: item.total_stars, reverse=True)
     fig, ax = plt.subplots(figsize=(10, 6))
-    labels = [item.repository.full_name for item in items]
+    labels = [_short_repo_name(item.repository.full_name) for item in items]
     buckets = ["0_30_days", "31_180_days", "181_365_days", "366_plus_days"]
     bottoms = [0] * len(labels)
     colors = ["#9a031e", "#fb8b24", "#e9d8a6", "#0f4c5c"]
@@ -118,7 +142,7 @@ def plot_stargazer_account_age(repo_stars: list[RepoStarSummary], output_dir: Pa
         bottoms = [bottom + value for bottom, value in zip(bottoms, values)]
     ax.set_xticks(list(positions))
     ax.set_xticklabels(labels, rotation=45, ha="right")
-    ax.set_title("Owned-Repo Stargazer Account Age Distribution")
+    ax.set_title("Stargazer Account Age Distribution")
     ax.legend()
     return _save(fig, output_dir / "stargazer_account_age.png")
 
@@ -126,11 +150,13 @@ def plot_stargazer_account_age(repo_stars: list[RepoStarSummary], output_dir: Pa
 def plot_suspicious_star_ratio(repo_stars: list[RepoStarSummary], output_dir: Path) -> str | None:
     if plt is None:
         return None
+    _apply_style()
     items = [item for item in repo_stars if item.suspicious_ratio is not None]
     if not items:
         return None
+    items = sorted(items, key=lambda item: item.suspicious_ratio or 0.0, reverse=True)
     fig, ax = plt.subplots(figsize=(10, 5))
-    labels = [item.repository.full_name for item in items]
+    labels = [_short_repo_name(item.repository.full_name) for item in items]
     values = [round((item.suspicious_ratio or 0.0) * 100, 1) for item in items]
     ax.bar(range(len(labels)), values, color="#9a031e")
     ax.set_xticks(range(len(labels)))
@@ -143,6 +169,7 @@ def plot_suspicious_star_ratio(repo_stars: list[RepoStarSummary], output_dir: Pa
 def plot_rule_summary(rules: list[RuleResult], output_dir: Path) -> str | None:
     if plt is None:
         return None
+    _apply_style()
     triggered = [rule for rule in rules if rule.triggered]
     if not triggered:
         return None

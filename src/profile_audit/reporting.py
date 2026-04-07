@@ -1,18 +1,23 @@
 from __future__ import annotations
 
 from pathlib import Path
+from statistics import median
 
 from .models import AuditArtifacts, ContributionLevel, CredibilityBand
 
 
 def _fmt_pct(value: float | None) -> str:
     if value is None:
-        return "n/a"
+        return "—"
     return f"{value * 100:.1f}%"
 
 
 def _fmt_days(value: int | None) -> str:
-    return "n/a" if value is None else str(value)
+    return "—" if value is None else str(value)
+
+
+def _fmt_int(value: int | None) -> str:
+    return "—" if value is None else str(value)
 
 
 def _repo_scope_label(item) -> str:
@@ -27,6 +32,15 @@ def render_report(artifacts: AuditArtifacts, figure_paths: dict[str, str]) -> st
     summary = artifacts.summary
     top_repos = [item.repository.full_name for item in artifacts.repo_contributions if item.classification == ContributionLevel.TOP]
     suspicious_repos = [item.repository.full_name for item in artifacts.repo_stars if item.classification == CredibilityBand.SUSPICIOUS]
+    measurable_repos = [item for item in artifacts.repo_contributions if item.subject.total_actions > 0]
+    active_days = [item.active_days for item in measurable_repos if item.active_days is not None]
+    first_delay_days = [item.days_from_repo_creation_to_first_contribution for item in measurable_repos if item.days_from_repo_creation_to_first_contribution is not None]
+    total_actions = sum(item.subject.total_actions for item in measurable_repos)
+    commit_share = (
+        sum(item.subject.commit_count for item in measurable_repos) / total_actions if total_actions else None
+    )
+    unattributed_repos = [item for item in artifacts.repo_contributions if item.subject.total_actions > 0 and item.contributor_rank is None]
+
     lines: list[str] = []
     lines.extend(
         [
@@ -43,6 +57,13 @@ def render_report(artifacts: AuditArtifacts, figure_paths: dict[str, str]) -> st
             f"- Direct answer: top contributor anywhere? {'yes' if top_repos else 'no'}",
             f"- Direct answer: footprint deep or shallow? {'deep in select repos' if summary.top_repo_count or summary.major_repo_count else 'broad but shallow'}",
             f"- Direct answer: stars suspicious? {'yes, caution required' if suspicious_repos else 'no strong suspicious pattern detected'}",
+            "",
+            "## Key Insights",
+            f"- Repositories with measurable activity: {len(measurable_repos)} of {len(artifacts.repo_contributions)}.",
+            f"- Median first-contribution delay: {_fmt_days(int(median(first_delay_days))) if first_delay_days else '—'} days.",
+            f"- Median active duration: {_fmt_days(int(median(active_days))) if active_days else '—'} days.",
+            f"- Action mix: commits account for {_fmt_pct(commit_share)} of all measured actions.",
+            f"- Attribution coverage gap: {len(unattributed_repos)} active repos still lack contributor-rank attribution.",
             "",
             "## Subject Summary",
             f"- Login: [{artifacts.subject.login}]({artifacts.subject.html_url})",
@@ -61,7 +82,7 @@ def render_report(artifacts: AuditArtifacts, figure_paths: dict[str, str]) -> st
         lines.append(
             f"| [{item.repository.full_name}]({item.repository.html_url}) | {_repo_scope_label(item)} | {item.repository.ownership.value} | "
             f"{item.repository.stargazers_count} | {item.repository.forks_count} | {item.classification.value} | "
-            f"{item.contributor_rank if item.contributor_rank is not None else 'n/a'} | {_fmt_pct(item.contribution_share)} | "
+            f"{_fmt_int(item.contributor_rank)} | {_fmt_pct(item.contribution_share)} | "
             f"{_fmt_days(item.days_from_repo_creation_to_first_contribution)} | {_fmt_days(item.active_days)} |"
         )
     lines.extend(["", "## Contribution Leaderboard Summary"])
@@ -95,12 +116,12 @@ def render_report(artifacts: AuditArtifacts, figure_paths: dict[str, str]) -> st
                     f"#### {item.repository.full_name}",
                     f"- Analysis order: `{_repo_scope_label(item)}`",
                     f"- Classification: `{item.classification.value}`",
-                    f"- Contributor rank: {item.contributor_rank if item.contributor_rank is not None else 'n/a'} of {item.contributor_count}",
+                    f"- Contributor rank: {_fmt_int(item.contributor_rank)} of {item.contributor_count}",
                     f"- Contribution share vs top contributor: {_fmt_pct(item.contribution_share)}",
                     f"- Measured actions: {item.subject.total_actions} "
                     f"(commits {item.subject.commit_count}, PRs {item.subject.pr_opened_count}, issues {item.subject.issue_opened_count}, reviews {item.subject.review_count})",
-                    f"- First contribution: {item.subject.first_contribution_at.isoformat() if item.subject.first_contribution_at else 'n/a'}",
-                    f"- Last contribution: {item.subject.last_contribution_at.isoformat() if item.subject.last_contribution_at else 'n/a'}",
+                    f"- First contribution: {item.subject.first_contribution_at.isoformat() if item.subject.first_contribution_at else '—'}",
+                    f"- Last contribution: {item.subject.last_contribution_at.isoformat() if item.subject.last_contribution_at else '—'}",
                     f"- Delay from repo creation to first contribution: {_fmt_days(item.days_from_repo_creation_to_first_contribution)} days",
                     f"- Active duration: {_fmt_days(item.active_days)} days",
                 ]

@@ -61,7 +61,13 @@ def run_audit(
             contribution_actions = max(contribution.total_actions, contribution.commit_count)
             contributor_pairs = [(item.login, item.contributions) for item in contributors]
             rank_input = build_rank_input(subject_profile.login, contribution_actions, contributor_pairs)
-            summary = build_repo_contribution_summary(repo, contribution, rank_input, warnings=warnings)
+            summary = build_repo_contribution_summary(
+                repo,
+                contribution,
+                rank_input,
+                subject_login=subject_profile.login,
+                warnings=warnings,
+            )
             if summary.classification.value == "unclear_due_to_data_limits":
                 unattributed_repos += 1
             repo_contributions.append(summary)
