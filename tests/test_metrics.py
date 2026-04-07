@@ -57,9 +57,29 @@ class MetricsTests(unittest.TestCase):
             contribution_types={},
         )
         ranked = build_rank_input("bob", 9, [("alice", 20), ("carol", 10)])
-        summary = build_repo_contribution_summary(repo, contribution, ranked)
+        summary = build_repo_contribution_summary(repo, contribution, ranked, subject_login="bob")
         self.assertEqual(summary.contributor_rank, 3)
         self.assertEqual(round(summary.contribution_share or 0, 2), 0.45)
+
+
+    def test_repo_contribution_summary_rank_when_subject_already_in_contributors(self):
+        repo = make_repo()
+        now = datetime.now(timezone.utc)
+        contribution = SubjectContribution(
+            commit_count=4,
+            pr_opened_count=0,
+            pr_merged_count=0,
+            issue_opened_count=0,
+            review_count=0,
+            first_contribution_at=now - timedelta(days=90),
+            last_contribution_at=now - timedelta(days=20),
+            total_actions=4,
+            contribution_types={},
+        )
+        ranked = build_rank_input("bob", 4, [("alice", 20), ("bob", 8), ("carol", 7)])
+        summary = build_repo_contribution_summary(repo, contribution, ranked, subject_login="bob")
+        self.assertEqual(summary.contributor_rank, 2)
+        self.assertEqual(round(summary.contribution_share or 0, 2), 0.40)
 
 
     def test_bucket_stargazers_recent_account_ratio(self):

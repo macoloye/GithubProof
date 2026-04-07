@@ -39,6 +39,7 @@ def build_repo_contribution_summary(
     repo: Repository,
     contribution: SubjectContribution,
     contributors: list[tuple[str, int]],
+    subject_login: str | None = None,
     warnings: list[str] | None = None,
 ) -> RepoContributionSummary:
     sorted_contributors = sorted(contributors, key=lambda item: item[1], reverse=True)
@@ -46,12 +47,12 @@ def build_repo_contribution_summary(
     contributor_rank = None
     top_actions = sorted_contributors[0][1] if sorted_contributors else None
     contribution_share = None
-    subject_login = next((login for login, _ in sorted_contributors if login.startswith("__subject__:")), None)
+    subject_marker = next((login for login, _ in sorted_contributors if login.startswith("__subject__:")), None)
     stripped = None
-    if subject_login:
-        stripped = subject_login.replace("__subject__:", "", 1)
-        sorted_contributors = [(stripped if login == subject_login else login, count) for login, count in sorted_contributors]
-    target_login = stripped if subject_login else None
+    if subject_marker:
+        stripped = subject_marker.replace("__subject__:", "", 1)
+        sorted_contributors = [(stripped if login == subject_marker else login, count) for login, count in sorted_contributors]
+    target_login = stripped or subject_login
     for index, (login, count) in enumerate(sorted_contributors, start=1):
         if target_login and login.lower() == target_login.lower():
             contributor_rank = index
