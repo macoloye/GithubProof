@@ -23,6 +23,7 @@ from .plotting import (
     plot_stargazer_account_age,
     plot_suspicious_star_ratio,
 )
+from .progress import ProgressTracker
 from .reporting import render_report
 from .rules import evaluate_contribution_rules, evaluate_star_rules
 
@@ -39,6 +40,7 @@ def run_audit(
     repo_search_limit: int = 100,
     stargazer_limit: int = 200,
     token: str | None = None,
+    progress: ProgressTracker | None = None,
 ) -> Path:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_dir = Path(output_dir) / subject / timestamp
@@ -48,14 +50,25 @@ def run_audit(
     client = GitHubClient(token=token)
     collection_warnings: list[str] = []
     try:
+        if progress:
+            progress.update(f"Fetching profile for GitHub ID {subject}")
         subject_profile = collect_subject_profile(client, subject)
+        if progress:
+            progress.advance(f"Fetched profile for GitHub ID {subject}")
+
+            progress.update(f"Discovering repositories for GitHub ID {subject}")
         repositories, discovery_warnings = discover_repositories(client, subject, max_repos=max_repos, repo_search_limit=repo_search_limit)
+        if progress:
+            progress.advance(f"Discovered {len(repositories)} repositories for GitHub ID {subject}")
+            progress.add_total(len(repositories) * 2 + 2)
         collection_warnings.extend(discovery_warnings)
         repo_contributions = []
         repo_stars = []
         unattributed_repos = 0
         raw_payload = {"subject": subject_profile.model_dump(mode="json"), "repositories": [item.model_dump(mode="json") for item in repositories]}
         for repo in repositories:
+            if progress:
+                progress.update(f"Collecting contribution data for {repo.full_name}")
             contributors = collect_repo_contributors(client, repo)
             contribution, warnings, raw_contribution = collect_subject_contribution(client, repo, subject_profile.login)
             contribution_actions = max(contribution.total_actions, contribution.commit_count)
@@ -73,16 +86,25 @@ def run_audit(
             repo_contributions.append(summary)
             raw_payload[repo.full_name] = raw_contribution
             collection_warnings.extend(warnings)
+            if progress:
+                progress.advance(f"Collected contribution data for {repo.full_name}")
 
+        for repo in repositories:
             try:
+                if progress:
+                    progress.update(f"Collecting stargazer data for {repo.full_name}")
                 records, star_warnings, raw_star_payload = collect_stargazer_records(client, repo, limit=stargazer_limit)
                 star_summary = build_star_summary(repo, records, warnings=star_warnings)
                 repo_stars.append(star_summary)
                 raw_payload[f"{repo.full_name}:stars"] = raw_star_payload
                 collection_warnings.extend(star_warnings)
+                if progress:
+                    progress.advance(f"Collected stargazer data for {repo.full_name}")
             except Exception as exc:
                 warning = f"Star collection failed for {repo.full_name}: {exc}"
                 collection_warnings.append(warning)
+                if progress:
+                    progress.advance(f"Stargazer data failed for {repo.full_name}")
         contribution_rules = evaluate_contribution_rules(repo_contributions, unattributed_contribution_repos=unattributed_repos)
         star_rules = evaluate_star_rules(repo_stars, repo_contributions)
         rules = contribution_rules + star_rules
@@ -102,7 +124,11 @@ def run_audit(
         _write_json(normalized_dir / "repo_star_summary.json", repo_stars)
         _write_json(normalized_dir / "rule_triggers.json", rules)
         _write_json(normalized_dir / "audit_summary.json", summary)
+        if progress:
+            progress.advance("Wrote raw and normalized audit data")
 
+        if progress:
+            progress.update("Rendering figures and final report")
         figure_paths = {
             "Contribution rank across repos": plot_contribution_rank(repo_contributions, figures_dir),
             "First contribution delay": plot_first_contribution_delay(repo_contributions, figures_dir),
@@ -130,6 +156,9 @@ def run_audit(
             },
         }
         _write_json(run_dir / "manifest.json", manifest)
+        if progress:
+            progress.advance("Finished report and manifest")
+            progress.finish(f"Audit complete for GitHub ID {subject}")
         return run_dir
     finally:
         client.close()

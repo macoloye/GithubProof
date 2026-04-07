@@ -48,7 +48,7 @@ export GITHUB_TOKEN=your_token_here
 pip install -e .
 ```
 
-Run one audit:
+Run one audit for a GitHub ID. In the examples below, `octocat` is the GitHub ID to search:
 
 ```bash
 github-proof run --subject octocat
@@ -62,19 +62,19 @@ Basic run:
 github-proof run --subject octocat
 ```
 
-Limit repo discovery:
+Search with limited repo discovery:
 
 ```bash
 github-proof run --subject octocat --max-repos 20 --repo-search-limit 50
 ```
 
-Cap stargazer analysis:
+Search with capped stargazer analysis:
 
 ```bash
 github-proof run --subject octocat --stargazer-limit 100
 ```
 
-Custom output directory:
+Search and write results to a custom output directory:
 
 ```bash
 github-proof run --subject octocat --output-dir reports
