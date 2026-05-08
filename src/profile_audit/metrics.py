@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime, timezone
 from math import ceil
+from typing import Iterable
 
 from .models import (
     ContributionLevel,
@@ -10,9 +11,19 @@ from .models import (
     RepoContributionSummary,
     RepoStarSummary,
     Repository,
+    RuleResult,
     StargazerRecord,
     SubjectContribution,
 )
+
+
+CONTRIBUTION_LEVEL_WEIGHTS: dict[str, int] = {
+    ContributionLevel.TOP.value: 25,
+    ContributionLevel.MAJOR.value: 18,
+    ContributionLevel.MID.value: 10,
+    ContributionLevel.MINOR.value: 3,
+    ContributionLevel.UNCLEAR.value: 0,
+}
 
 
 def _days_between(start: datetime | None, end: datetime | None) -> int | None:
@@ -183,3 +194,109 @@ def summarize_profile(repo_contributions: list[RepoContributionSummary], repo_st
         owned_repo_count=owned,
         contributed_repo_count=contributed,
     )
+
+
+def per_repo_velocity(item: RepoContributionSummary) -> float | None:
+    """Average measured actions per active day. None when active_days is unknown or zero."""
+    if not item.active_days or item.active_days <= 0:
+        return None
+    return item.subject.total_actions / item.active_days
+
+
+def days_since_last_contribution(
+    item: RepoContributionSummary, now: datetime | None = None
+) -> int | None:
+    if not item.subject.last_contribution_at:
+        return None
+    reference = now or datetime.now(timezone.utc)
+    return max((reference - item.subject.last_contribution_at).days, 0)
+
+
+def severity_breakdown(rules: Iterable[RuleResult]) -> dict[str, int]:
+    counts = Counter({"high": 0, "medium": 0, "low": 0})
+    for rule in rules:
+        if rule.triggered:
+            counts[rule.severity] += 1
+    return dict(counts)
+
+
+def compute_trust_scores(
+    repo_contributions: list[RepoContributionSummary],
+    repo_stars: list[RepoStarSummary],
+    rules: list[RuleResult],
+) -> dict[str, int | float]:
+    """Composite trust score (0–100) with contribution, authenticity and engagement subscores.
+
+    The score is a weighted combination of three deterministic signals minus a
+    risk penalty; every input is publicly observable so the score is reproducible
+    from the persisted normalized data.
+    """
+
+    contribution_points = 0.0
+    for item in repo_contributions:
+        contribution_points += CONTRIBUTION_LEVEL_WEIGHTS.get(item.classification.value, 0)
+    contribution_points = min(contribution_points, 80.0)
+    deep_repos = [
+        item
+        for item in repo_contributions
+        if item.classification.value
+        in (ContributionLevel.TOP.value, ContributionLevel.MAJOR.value)
+        and item.active_days is not None
+        and item.active_days >= 30
+    ]
+    contribution_points += min(20.0, 10.0 * len(deep_repos))
+    contribution_score = max(0.0, min(100.0, contribution_points))
+
+    measurable_stars = [
+        s for s in repo_stars if s.suspicious_ratio is not None and s.analyzed_stargazers > 0
+    ]
+    if not measurable_stars:
+        star_score = 50.0
+    else:
+        weight_total = 0.0
+        weighted_susp = 0.0
+        for s in measurable_stars:
+            weight = max(s.analyzed_stargazers, 1)
+            weighted_susp += (s.suspicious_ratio or 0.0) * weight
+            weight_total += weight
+        avg_susp = weighted_susp / weight_total if weight_total else 0.0
+        star_score = max(0.0, min(100.0, (1.0 - avg_susp) * 100.0))
+
+    owned_repos = [
+        item.repository
+        for item in repo_contributions
+        if item.repository.ownership.value in ("owned", "owned_and_contributed")
+    ]
+    if owned_repos:
+        engagement_total = 0.0
+        for repo in owned_repos:
+            engagement_total += (
+                min(20, repo.stargazers_count)
+                + min(10, repo.forks_count)
+                + min(5, repo.watchers_count)
+            )
+        engagement_score = min(100.0, engagement_total * (100.0 / (len(owned_repos) * 35.0)))
+    else:
+        engagement_score = 50.0
+
+    triggered_high = sum(1 for r in rules if r.triggered and r.severity == "high")
+    triggered_med = sum(1 for r in rules if r.triggered and r.severity == "medium")
+    triggered_low = sum(1 for r in rules if r.triggered and r.severity == "low")
+    risk_penalty = min(30.0, triggered_high * 6.0 + triggered_med * 3.0 + triggered_low * 1.0)
+
+    composite = round(
+        0.55 * contribution_score + 0.30 * star_score + 0.15 * engagement_score - risk_penalty
+    )
+    composite = max(0, min(100, int(composite)))
+
+    return {
+        "composite": composite,
+        "contribution": int(round(contribution_score)),
+        "stars": int(round(star_score)),
+        "engagement": int(round(engagement_score)),
+        "risk_penalty": int(round(risk_penalty)),
+        "triggered_high": triggered_high,
+        "triggered_medium": triggered_med,
+        "triggered_low": triggered_low,
+        "weights": {"contribution": 0.55, "stars": 0.30, "engagement": 0.15},
+    }

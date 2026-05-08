@@ -3,8 +3,28 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import unittest
 
-from profile_audit.metrics import bucket_stargazers, build_rank_input, build_repo_contribution_summary, build_star_summary, classify_contribution
-from profile_audit.models import RepoOwnership, Repository, StargazerRecord, SubjectContribution
+from profile_audit.metrics import (
+    bucket_stargazers,
+    build_rank_input,
+    build_repo_contribution_summary,
+    build_star_summary,
+    classify_contribution,
+    compute_trust_scores,
+    days_since_last_contribution,
+    per_repo_velocity,
+    severity_breakdown,
+)
+from profile_audit.models import (
+    ContributionLevel,
+    CredibilityBand,
+    RepoContributionSummary,
+    RepoOwnership,
+    RepoStarSummary,
+    Repository,
+    RuleResult,
+    StargazerRecord,
+    SubjectContribution,
+)
 
 
 def make_repo() -> Repository:
@@ -95,6 +115,114 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual(round(young_ratio or 0, 2), 0.33)
         self.assertEqual(round(suspicious_ratio or 0, 2), 0.33)
 
+
+    def test_per_repo_velocity_and_recency(self):
+        repo = make_repo()
+        now = datetime.now(timezone.utc)
+        contribution = SubjectContribution(
+            commit_count=10,
+            first_contribution_at=now - timedelta(days=20),
+            last_contribution_at=now - timedelta(days=10),
+            total_actions=10,
+        )
+        summary = RepoContributionSummary(
+            repository=repo,
+            subject=contribution,
+            contributor_rank=1,
+            contributor_count=1,
+            top_contributor_actions=10,
+            contribution_share=1.0,
+            active_days=10,
+            days_from_repo_creation_to_first_contribution=5,
+            classification=ContributionLevel.TOP,
+        )
+        self.assertAlmostEqual(per_repo_velocity(summary), 1.0)
+        self.assertEqual(days_since_last_contribution(summary, now=now), 10)
+
+    def test_severity_breakdown_counts_only_triggered(self):
+        rules = [
+            RuleResult(rule_id="a", category="x", target="t", triggered=True, severity="high", explanation=""),
+            RuleResult(rule_id="b", category="x", target="t", triggered=False, severity="high", explanation=""),
+            RuleResult(rule_id="c", category="x", target="t", triggered=True, severity="medium", explanation=""),
+        ]
+        counts = severity_breakdown(rules)
+        self.assertEqual(counts["high"], 1)
+        self.assertEqual(counts["medium"], 1)
+        self.assertEqual(counts["low"], 0)
+
+    def test_compute_trust_scores_rewards_top_contributor(self):
+        repo = make_repo()
+        now = datetime.now(timezone.utc)
+        contribution = SubjectContribution(
+            commit_count=10,
+            first_contribution_at=now - timedelta(days=60),
+            last_contribution_at=now - timedelta(days=10),
+            total_actions=10,
+        )
+        summary = RepoContributionSummary(
+            repository=repo,
+            subject=contribution,
+            contributor_rank=1,
+            contributor_count=1,
+            top_contributor_actions=10,
+            contribution_share=1.0,
+            active_days=50,
+            days_from_repo_creation_to_first_contribution=0,
+            classification=ContributionLevel.TOP,
+        )
+        star_summary = RepoStarSummary(
+            repository=repo,
+            total_stars=120,
+            analyzed_stargazers=100,
+            bucket_counts={"0_30_days": 1, "366_plus_days": 99},
+            recent_account_ratio=0.01,
+            young_account_ratio=0.01,
+            suspicious_ratio=0.01,
+            classification=CredibilityBand.ORGANIC,
+        )
+        scores = compute_trust_scores([summary], [star_summary], rules=[])
+        self.assertGreater(scores["composite"], 60)
+        self.assertGreaterEqual(scores["contribution"], 35)
+        self.assertGreaterEqual(scores["stars"], 95)
+
+    def test_compute_trust_scores_penalizes_high_severity(self):
+        repo = make_repo()
+        now = datetime.now(timezone.utc)
+        contribution = SubjectContribution(
+            commit_count=1,
+            first_contribution_at=now - timedelta(days=1),
+            last_contribution_at=now,
+            total_actions=1,
+        )
+        summary = RepoContributionSummary(
+            repository=repo,
+            subject=contribution,
+            contributor_rank=10,
+            contributor_count=20,
+            top_contributor_actions=200,
+            contribution_share=0.005,
+            active_days=1,
+            days_from_repo_creation_to_first_contribution=180,
+            classification=ContributionLevel.MINOR,
+        )
+        star_summary = RepoStarSummary(
+            repository=repo,
+            total_stars=100,
+            analyzed_stargazers=80,
+            bucket_counts={"0_30_days": 60, "366_plus_days": 20},
+            recent_account_ratio=0.75,
+            young_account_ratio=0.75,
+            suspicious_ratio=0.75,
+            classification=CredibilityBand.SUSPICIOUS,
+        )
+        rules = [
+            RuleResult(rule_id="r1", category="contribution", target="t", triggered=True, severity="high", explanation=""),
+            RuleResult(rule_id="r2", category="contribution", target="t", triggered=True, severity="high", explanation=""),
+            RuleResult(rule_id="r3", category="star", target="t", triggered=True, severity="medium", explanation=""),
+        ]
+        scores = compute_trust_scores([summary], [star_summary], rules=rules)
+        self.assertLess(scores["composite"], 40)
+        self.assertGreaterEqual(scores["risk_penalty"], 15)
 
     def test_star_summary_flags_suspicious_pattern(self):
         repo = make_repo()
